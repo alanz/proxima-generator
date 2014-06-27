@@ -11,7 +11,7 @@
 
 module Gen_DocUtils where
 
-import List
+import Data.List
 
 import TypesUtils
 
@@ -30,60 +30,60 @@ genRankNode decls = genBanner "rankNode" $
   zipWith (++) (map genRankNodeCnstr (getAllConstructorNames decls))
                (map show [1..])
   where genRankNodeCnstr cnstrName = "rankNode (Node_%1 _ _) = " <~ [cnstrName]
-               
+
 
 genDocNode decls = genBanner "DocNode instance for Node" $
   [ "instance DocNode Node where"
   , "  noNode = NoNode"
   , ""
-  , "  pathNode NoNode            = NoPathD" 
+  , "  pathNode NoNode            = NoPathD"
   ] ++
-  [ "  pathNode (Node_%1 _ pth) = PathD pth" <~ [cnstrName] 
-  | cnstrName <-  getAllConstructorNames decls 
+  [ "  pathNode (Node_%1 _ pth) = PathD pth" <~ [cnstrName]
+  | cnstrName <-  getAllConstructorNames decls
   ] ++
   [ "" ] ++
-  [ "  typeOfNode (Node_%1 _ _) = %2" <~ 
+  [ "  typeOfNode (Node_%1 _ _) = %2" <~
     [ cnstrName
     , case lhsType of
              LHSBasicType typeName -> "BasicType \"" ++ typeName ++ "\""
              LHSListType  typeName -> "ListType \"" ++ typeName ++ "\""
              -- no Conslists
-    ] 
+    ]
   | Decl lhsType prods <- decls
   , Prod _ cnstrName _ _ <- prods
-  ]        
-  
+  ]
+
 
 genToXML decls = genBanner "toXML functions" $ concatMap genToXMLDecl decls
-  where genToXMLDecl (Decl (LHSBasicType typeName) prods) = 
-         [ case prodKind of 
+  where genToXMLDecl (Decl (LHSBasicType typeName) prods) =
+         [ case prodKind of
              ParseErrProd -> "toXML%1 %2 = EmptyElt \"%3\" []" <~ [typeName, genPattern prod, cnstrName] 
-             _            -> if null fields 
+             _            -> if null fields
                              then "toXML%1 %2 = EmptyElt \"%3\" [] " <~ [typeName, genPattern prod, cnstrName]
                              else "toXML%1 %2 = Elt \"%3\" [] $ " <~ [typeName, genPattern prod, cnstrName]
                                    ++ genToXMLFields fields
-         | prod@(Prod prodKind cnstrName _ fields) <- prods 
+         | prod@(Prod prodKind cnstrName _ fields) <- prods
          ]
-        genToXMLDecl (Decl (LHSListType typeName) prods) = 
+        genToXMLDecl (Decl (LHSListType typeName) prods) =
           [ "toXMLList_%1 (List_%1 xs) = toXMLConsList_%1 xs"
           , "toXMLList_%1 HoleList_%1 = []"
           , "toXMLList_%1 (ParseErrList_%1 _) = []"
           ] <~ [ typeName ]
-        genToXMLDecl (Decl (LHSConsListType typeName) prods) = 
+        genToXMLDecl (Decl (LHSConsListType typeName) prods) =
           [ "toXMLConsList_%1 (Cons_%1 x xs) = toXML%1 x : toXMLConsList_%1 xs"
-          , "toXMLConsList_%1 Nil_%1             = []"  
+          , "toXMLConsList_%1 Nil_%1             = []"
           ] <~ [ typeName ]
-     
+
         genToXMLFields [] = "[]"
         genToXMLFields fields = separateBy " ++ "
-          [ if isListType . fieldType $ field 
-            then "toXML%1 %2" <~ [genType (fieldType field), fieldName field] 
-            else "[toXML%1 %2]" <~ [genType (fieldType field), fieldName field] 
+          [ if isListType . fieldType $ field
+            then "toXML%1 %2" <~ [genType (fieldType field), fieldName field]
+            else "[toXML%1 %2]" <~ [genType (fieldType field), fieldName field]
           | field <- fields ]
 
 genParseXML decls = genBanner "parseXML functions" $ concatMap genParseXMLType decls
  where genParseXMLType (Decl (LHSBasicType typeName) prods) =
-         "parseXML_%1 = %2parseHoleAndParseErr \"%1\" Hole%1" <~ 
+         "parseXML_%1 = %2parseHoleAndParseErr \"%1\" Hole%1" <~
            [ typeName
            , concat [ "parseXMLCns_%1 <|> " <~ [cnstrName] | Prod _ cnstrName _ _ <- prods ]
            ] :
@@ -92,10 +92,10 @@ genParseXML decls = genBanner "parseXML functions" $ concatMap genParseXMLType d
          [ "parseXML_List_%1 = mkList List_%1 Cons_%1 Nil_%1 <$> pList_ng parseXML_%1" <~ 
            [ typeName ]
          ]
-         
+
        genParseXMLProd (Prod _ cnstrName idpFields fields) =
          ("parseXMLCns_%1 = %1%2 <$ " ++
-          if null fields 
+          if null fields
           then "emptyTag \"%1\""
           else "startTag \"%1\"" ++  concatMap ((" <*> parseXML_"++) . genType . fieldType) fields ++ "<* endTag \"%1\""
          ) <~ [cnstrName, prefixBy " " $ map genNoIDP idpFields ]

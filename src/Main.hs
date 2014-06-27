@@ -8,8 +8,9 @@ import qualified Gen_ProxParser
 import qualified Gen_PresentationAG
 import qualified Gen_DocumentEdit
 
-import System
-import List
+import Control.Exception
+import System.Environment
+import Data.List
 
 {-
 
@@ -27,10 +28,10 @@ main =
  do { args <- getArgs
     ; case args of
         [srcPath, fname] -> generateFiles srcPath fname
-        _                -> 
+        _                ->
           stop "Usage: generate <path to proxima instance dir> <document type definition>.prx"                           
     }
-    
+
 generateFiles srcPath fileName =
  do { docType <- parseDocumentType fileName
     ; generateFile srcPath "DocTypes_Generated.hs"       $ Gen_DocTypes.generate docType
@@ -39,7 +40,7 @@ generateFiles srcPath fileName =
     ; generateFile srcPath "PresentationAG_Generated.ag" $ Gen_PresentationAG.generate docType
     ; generateFile srcPath "DocumentEdit_Generated.hs"   $ Gen_DocumentEdit.generate docType
     }
-    
+
 generateFile :: String -> String -> [String] -> IO ()
 generateFile path fileName generatedLines =
  do { putStrLn $ "Generating "++fileName
@@ -49,10 +50,10 @@ generateFile path fileName generatedLines =
     ; case removeGeneratedContent oldContents of
         Nothing -> stop ("File "++filePath++" should contain the following line:\n\n"++delimiterLine)
         Just nonGenerated -> writeFile filePath $ nonGenerated ++ unlines (delimiterLine : generatedLines)
-    } `catch` \err -> stop (show err)
+    } `catch` \err -> stop (show (err :: IOException))
 
 removeGeneratedContent :: String -> Maybe String
-removeGeneratedContent content = 
+removeGeneratedContent content =
   let contentLines = lines content
   in  if any (isPrefixOf delimiterLine) contentLines
       then Just $ unlines $ takeWhile (not . isPrefixOf delimiterLine) contentLines

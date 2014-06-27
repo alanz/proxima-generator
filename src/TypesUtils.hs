@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances    #-}
 -----------------------------------------------------------------------------------------
 {-| Module      : Types
     Copyright   : 
@@ -11,9 +13,10 @@
 
 module TypesUtils where
 
-import System
-import Char
-import List
+import Control.Exception
+import Data.Char
+import Data.List
+import System.Exit
 
 delimiterLine = "----- GENERATED PART STARTS HERE. DO NOT EDIT ON OR BEYOND THIS LINE -----"
 
@@ -23,7 +26,7 @@ primTypes = map LHSBasicType primTypeNames
 
 primTypeDecls = map primDecl [(LHSBasicType "Bool"), (LHSBasicType "Int"), (LHSBasicType "String"), (LHSBasicType "Float") ]
  where primDecl tpe = Decl tpe []
- 
+
 type DocumentType = [Decl]
 
 data Decl = Decl { declLHSType :: LHSType, productions :: [Prod] } deriving Show
@@ -39,7 +42,7 @@ data Field = Field { fieldName :: FieldName, fieldType :: Type } deriving Show
 data Type = BasicType     { typeName :: TypeName }
           | ListType      { typeName :: TypeName }
           | CompositeType { typeName :: TypeName } deriving (Show, Eq, Ord)
-          
+
 data LHSType = LHSBasicType    { lhsTypeName :: TypeName }
              | LHSListType     { lhsTypeName :: TypeName }
              | LHSConsListType { lhsTypeName :: TypeName } deriving (Show, Eq)
@@ -54,17 +57,17 @@ isListType (ListType _) = True
 isListType _            = False
 
 getDocumentDecl :: DocumentType -> Decl
-getDocumentDecl decls = 
+getDocumentDecl decls =
   case [ decl | decl@(Decl lhsType _) <- decls, genTypeName lhsType == "Document" ] of
     []     -> error "No declaration for Document"
     [decl] -> decl
     _      -> error "Multiple declarations for Document"
-  
+
 getAllDeclaredTypeNames :: DocumentType -> [TypeName]
 getAllDeclaredTypeNames decls = [ genTypeName name | Decl name _ <- decls ]
 
 getAllUsedTypes :: DocumentType -> [Type]
-getAllUsedTypes decls = nub 
+getAllUsedTypes decls = nub
   [ tpe | Decl _ prods <- decls, Prod _ name _ fields <- prods, Field _ tpe <- fields  ]
 
 -- return the list types appearing in right-hand sides
@@ -101,7 +104,7 @@ genIDPTypeAG (CompositeType typeName) = "{"++typeName++"}"
 genType (BasicType typeName)     = typeName
 genType (ListType typeName)      = "List_"++typeName
 genType (CompositeType typeName) = "("++typeName++")"
- 
+
 genTypeAG (BasicType typeName)     = typeName
 genTypeAG (ListType typeName)      = "List_"++typeName
 genTypeAG (CompositeType typeName) = "{("++typeName++")}"
@@ -113,23 +116,23 @@ genTypeName (LHSBasicType typeName)    = typeName
 genTypeName (LHSListType typeName)     = "List_"++typeName
 genTypeName (LHSConsListType typeName) = "ConsList_"++typeName
 
-genNoIDP (Field _ tpe) = if isListType tpe then "[]" else "NoIDP"         
+genNoIDP (Field _ tpe) = if isListType tpe then "[]" else "NoIDP"
 
 
 -- Generate a pattern with named parameters and _ for idps. Eg. (Bin _ left right)
-genPattern (Prod _ cnstrName idpFields fields) = 
-  "(%1%2%3)" <~ 
+genPattern (Prod _ cnstrName idpFields fields) =
+  "(%1%2%3)" <~
   [cnstrName, concat $ replicate (length idpFields) " _", concatMap ((" "++) . fieldName) fields]
 
 -- Generate a pattern with x parameters and _ for idps. Eg. (Bin _ x0 x1)
-genXPattern (Prod _ cnstrName idpFields fields) = 
+genXPattern (Prod _ cnstrName idpFields fields) =
   "(%1%2%3)"
   <~ [ cnstrName
      , concat $ replicate (length idpFields) " _"
      , prefixBy " x" $map show [0..length fields-1]
      ]
--- Generate a pattern with x parameters and i for idps. Eg. (Bin i0 x0 x1)     
-genIXPattern (Prod _ cnstrName idpFields fields) = 
+-- Generate a pattern with x parameters and i for idps. Eg. (Bin i0 x0 x1)
+genIXPattern (Prod _ cnstrName idpFields fields) =
   "(%1%2%3)"
   <~ [ cnstrName
      , prefixBy " i" $ map show [0..length idpFields-1]
@@ -138,11 +141,11 @@ genIXPattern (Prod _ cnstrName idpFields fields) =
 
 -- If there is no EnrichedDoc declaration, create one, taking the right-hand side
 -- from the Document declaration
-addEnrichedDocDecl decls = 
+addEnrichedDocDecl decls =
   if "EnrichedDoc" `elem` getAllDeclaredTypeNames decls
-  then decls 
+  then decls
   else case getDocumentDecl decls of
-         Decl _ [Prod prodKind "RootDoc" idpFields fields] -> 
+         Decl _ [Prod prodKind "RootDoc" idpFields fields] ->
            Decl (LHSBasicType "EnrichedDoc") [Prod prodKind "RootEnr" idpFields fields]  : decls
          _                     -> error "Automatic EnrichedDoc generation only for simple \"data Document = RootDoc ..\""
 
@@ -151,40 +154,40 @@ removeDocumentDecl decls = filter ((/= "Document") . genTypeName . declLHSType) 
 removeEnrichedDocDecl decls = filter ((/= "EnrichedDoc") . genTypeName . declLHSType) decls
 
 addListDecls decls = decls ++ (map genListDecl $ getAllUsedListTypes decls)
- where genListDecl tpe = Decl (LHSListType $ typeName tpe) 
+ where genListDecl tpe = Decl (LHSListType $ typeName tpe)
                            [ Prod ListProd ("List_"++typeName tpe) [] [Field "elts" (BasicType ("ConsList_"++typeName tpe))] ]
 
 -- it doesn't matter if addListDecls has been called before using addConsListDecls, since addListDecls does
 -- not introduce additional lists.
 addConsListDecls decls = decls ++ (map genConsListDecl $ getAllUsedListTypes decls)
  where genConsListDecl tpe = Decl (LHSConsListType (typeName tpe))
-                           [ Prod ConsProd ("Cons_"++typeName tpe) [] 
+                           [ Prod ConsProd ("Cons_"++typeName tpe) []
                                [ Field "head" (BasicType (typeName tpe))
                                , Field "tail" (BasicType ("ConsList_"++typeName tpe))
                                ]
                            , Prod NilProd ("Nil_"++typeName tpe) [] []
                            ]
-            
--- add Hole and ParseErr productions to all declarations, except ConsLists            
+
+-- add Hole and ParseErr productions to all declarations, except ConsLists
 addHolesParseErrs :: DocumentType -> DocumentType
 addHolesParseErrs decls = [ Decl lhsType $ prods ++ case lhsType of
                                                       LHSConsListType _ -> []
                                                       _                 -> holeParseErr (genTypeName lhsType)
                           | Decl lhsType prods <- decls ]
- where holeParseErr typeName = [ Prod HoleProd ("Hole"++typeName) [] [] 
-                               , Prod ParseErrProd ("ParseErr"++typeName) [] 
+ where holeParseErr typeName = [ Prod HoleProd ("Hole"++typeName) [] []
+                               , Prod ParseErrProd ("ParseErr"++typeName) []
                                    [ Field "error"        (CompositeType "ParseError Document EnrichedDoc Node ClipDoc UserToken") 
                                    ]
                                ]
-  
-genBanner str lines = 
+
+genBanner str lines =
  [""
  ,"--------------------------------------------------------------------------"
  ,"-- " ++ str ++  replicate (69 - length str) ' ' ++ "--"
  ,"--------------------------------------------------------------------------"
  ,""
  ] ++ lines ++ ["",""]
- 
+
 appendToLastLine str [] = [str]
 appendToLastLine str lines = init lines ++ [last lines ++ str]
 
@@ -195,23 +198,23 @@ prefixBy pre strs = concatMap (pre++) strs
 suffixBy suf strs = concatMap (++suf) strs
 
 surroundBy pre suf strs = concatMap (\str -> pre ++ str ++ suf) strs
- 
+
 infixl 9 <~
- 
+
 class Substitute x where
   (<~) :: x -> [String] -> x
-  
+
 instance Substitute String where
  str <~ args = substitute str
   where substitute "" = ""
         substitute [c] = [c]
-        substitute ('%':d:cs) = if not $ isDigit d 
+        substitute ('%':d:cs) = if not $ isDigit d
                            then error $ "subs: incorrect format: "++show str
                            else let i = ord d - ord '0'
-                                in  if i > length args 
+                                in  if i > length args
                                     then "subs: not enough arguments: "++show str
                                     else args !! (i-1) ++ substitute cs
-        substitute (c:cs) = c : substitute cs 
+        substitute (c:cs) = c : substitute cs
 
 instance Substitute [String] where
  strs <~ args = map (<~ args) strs
